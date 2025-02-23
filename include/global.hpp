@@ -1,10 +1,10 @@
+#include "main.h"
 #include "pros/adi.hpp"
 #include "pros/colors.hpp"
 #include "pros/motor_group.hpp"
 #include "pros/motors.hpp"
 #include "pros/optical.hpp"
 #include "pros/rotation.hpp"
-#include "main.h"
 
 // Clamp Pistons
 extern pros::adi::DigitalOut clampPistonL;
@@ -39,8 +39,17 @@ extern int intake_color_p;
 
 // Drive hold for auton and driver control
 extern bool driveHold;
+extern bool intakeActive;
+// Global flag to inhibit intake commands when a wrong-colored ring is
+// encountered
+extern bool intakeOverride;
+// Global alliance selection variable; set true for red, false for blue.
+extern bool redAlliance;
 
-extern void moveIntake(int state);
+// Global flag to inhibit unstuck commands while a reversal is in progress.
+extern bool unstuckOverride;
+
+extern bool moveIntake(int state);
 extern void moveIntakeOP(int state);
 extern void clamp();
 extern void ladyBrown(int state);

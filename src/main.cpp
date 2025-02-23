@@ -53,7 +53,7 @@ lemlib::Drivetrain drivetrain(
 
 // lateral motion controller
 lemlib::ControllerSettings
-    linearController(8,   // proportional gain (kP)
+    linearController(7,   // proportional gain (kP)
                      0,   // integral gain (kI)
                      4,   // derivative gain (kD)
                      0.5, // anti windup
@@ -149,29 +149,31 @@ pros::Optical IntakeColor(intake_color_p);
 // Lady Brown Counter
 int ladybrown_counter = 0;
 
-void moveIntake(int state) {
-  // Full voltage commands for off, positive, and negative directions
-  const int voltages[3] = {0, 120 * 127, -120 * 127};
+// State variable for intake
+bool intakeActive = false;
+
+// Global flag to inhibit intake commands when a wrong-colored ring is
+// encountered
+bool intakeOverride = false;
+
+// Global flag to inhibit unstuck commands while a reversal is in progress.
+bool unstuckOverride = false;
+
+// Global alliance selection variable; set true for red, false for blue.
+bool redAlliance = true;
+
+bool moveIntake(int state) {
+  // Use voltage values within the V5 limits.
+  const int voltages[3] = {0, 127 * 120, -127 * 120};
   if (state < 0 || state > 2) {
-    return;
+    intakeActive = false;
+    return false;
   }
-  // Command the motor with the desired voltage.
   intakeMotor.move_voltage(voltages[state]);
 
-  // If moving in the positive direction, check if the motor is stuck.
-  if (state == 1) {
-    // Allow a brief moment for the voltage command to take effect.
-    pros::delay(200);
-    // Get the actual velocity (in rpm); adjust the threshold as needed.
-    double velocity = intakeMotor.get_actual_velocity();
-    if (fabs(velocity) < 10) { // If the motor isn’t spinning as expected...
-      // Reverse for 200ms using the negative voltage command.
-      intakeMotor.move_voltage(voltages[2]);
-      pros::delay(200);
-      // Resume the positive command.
-      intakeMotor.move_voltage(voltages[1]);
-    }
-  }
+  // Return true if state is 1 or 2, false if 0.
+  intakeActive = (state == 1 || state == 2);
+  return intakeActive;
 }
 
 void moveIntakeOP(int state) {
@@ -231,12 +233,12 @@ void liftControlPIDTask(void *param) {
   // Retuned parameters for smoother control on a single 11W motor (~100 rpm
   // max) Lower gain, higher tolerance and deadband, and slower update frequency
   // can help reduce oscillation.
-  const double kp = 0.5; // Lower proportional gain
+  const double kp = 0.6; // Lower proportional gain
   const double tolerance =
-      5.0; // Allowable error (degrees) before we're "close enough"
+      1.0; // Allowable error (degrees) before we're "close enough"
   const double deadband =
-      10.0; // If error is smaller than 10°, command no motion
-  const int minVelocity = 10; // Minimum velocity (rpm) when commanding movement
+      7.0;                   // If error is smaller than 10°, command no motion
+  const int minVelocity = 5; // Minimum velocity (rpm) when commanding movement
   const int maxVelocity = 60; // Reduced maximum velocity for smoother response
   const int loopDelay = 50; // Increase the delay to 50 ms (slower update rate)
 
@@ -317,7 +319,7 @@ void enableLiftControl() {
 
 void ladyBrown(int state) {
   // const float positions[4] = {10, 45, 80, 150};
-  const float positions[4] = {1, 33, 50, 150};
+  const float positions[4] = {1, 36, 70, 150};
   if (state >= 0 && state < 4) {
     updateLiftTarget(positions[state]);
     // if (state == 3) {
@@ -332,27 +334,24 @@ void skills() {
   // Skills Autonomous
 
   // Scores on the alliance stake
-  chassis.setPose(-58, 0, 270);
+  chassis.setPose(-61, 0, 90);
+  // chassis.setPose(-64.5, 64.5, 135);
 
   // Movement 1
   // Moves forward to align with the stake
-  // moveIntake(1);
-  // pros::delay(300);
-  // chassis.moveToPose(-47.5, 0, -45, 600, {.maxSpeed = 127}, false);
-  // moveIntake(0);
-  // // Moves to the stake backwards
-  // chassis.turnToHeading(0, 500);
-  ladyBrown(3);
-  pros::delay(500);
-  ladyBrown(0);
-  chassis.turnToPoint(-48.5, -27, 600, {.forwards = false});
-  chassis.moveToPoint(-47.5, -27, 800, {.forwards = false}, false);
+  moveIntake(1);
+  pros::delay(300);
+  moveIntake(0);
+  chassis.moveToPoint(-48.5, 0, 300);
+  chassis.turnToPoint(-48.5, -27, 500, {.forwards = false});
+  chassis.moveToPoint(-48.5, -27, 800, {.forwards = false, .maxSpeed = 60},
+                      false);
   // clamps the stake
   pros::delay(200);
   clamp();
 
   // Movement 2
-  // Moves to first ring
+  //   Moves to first ring
   chassis.turnToPoint(-24, -24, 600, {});
   moveIntake(0);
   pros::delay(500);
@@ -361,26 +360,30 @@ void skills() {
   pros::delay(500);
 
   // Movement 3
-  // Moves to the center
-  chassis.turnToPoint(0, -41, 600);
-  chassis.moveToPoint(0, -41, 800, {}, false);
-  // Wall stake up
-  ladyBrown(1);
+  // Moves to the second ring
+    chassis.turnToPoint(-4, -59, 600);
+    chassis.moveToPoint(-4, -59, 800, {}, false);
+//   chassis.turnToPoint(-18, 40, 600, {}, false);
+  pros::delay(500);
+//   ladyBrown(1);
+//   chassis.follow(secondRing_txt, 14, 1200);
+//   pros::delay(500);
   // Moves to second ring
-  chassis.turnToPoint(24, -48, 800);
-  chassis.moveToPoint(24, -48, 1000);
+  chassis.turnToPoint(24, -50, 800, {}, false);
+  // Wall stake up
+  chassis.moveToPoint(24, -50, 1000);
+  pros::delay(300);
+  ladyBrown(1);
 
   // Movement 4
   // Moves to middle
-  chassis.moveToPose(0, -44, 90, 2000, {.forwards = false}, false);
-  moveIntake(0);
+  chassis.turnToPoint(4, -50, 500, {.forwards = false});
+  chassis.moveToPoint(4, -50, 800, {.forwards = false}, false);
   // Moves to third ring
-  chassis.turnToHeading(180, 1000);
-  ladyBrown(2);
+  chassis.turnToHeading(180, 800, {}, false);
+  chassis.moveToPoint(4, -65, 800, {}, false);
   pros::delay(500);
-  moveIntake(1);
-  chassis.moveToPoint(0, -61, 1200, {}, false);
-  pros::delay(500);
+  moveIntake(0);
   ladyBrown(3);
   pros::delay(500);
 
@@ -389,21 +392,22 @@ void skills() {
   chassis.moveToPoint(0, -50, 600, {.forwards = false}, false);
   ladyBrown(0);
   // Moves to fourth ring
-  chassis.turnToPoint(-23.5, -50, 800);
+  chassis.turnToPoint(-23.5, -50, 800, {}, false);
+  moveIntake(1);
   chassis.moveToPoint(-23.5, -50, 800, {}, false);
 
   // Movement 6 & 7
-  chassis.moveToPoint(-57, -47.5, 2100, {.maxSpeed = 30}, false);
+  chassis.moveToPoint(-59, -50, 2100, {.maxSpeed = 50}, false);
   pros::delay(500);
 
   // Movement 8
-  // chassis.turnToPoint(-47.5, -59, 800);
-  chassis.moveToPose(-47.5, -59, 90, 1200, {}, false);
+  chassis.turnToPoint(-47.5, -59, 800);
+  chassis.moveToPoint(-47.5, -59, 1400, {}, false);
 
   // Movement 9
-  chassis.turnToPoint(-60, -60, 500, {.forwards = false});
-  chassis.moveToPoint(-60, -60, 800, {.forwards = false}, false);
-  moveIntake(0);
+  //   chassis.turnToPoint(-65, -65, 500, {.forwards = false});
+  chassis.moveToPoint(-60, -66, 800, {.forwards = false}, false);
+  pros::delay(200);
   clamp();
 
   /*
@@ -411,8 +415,13 @@ void skills() {
   */
 
   // Movement 10
-  chassis.turnToPoint(-47.5, 26, 1000, {.forwards = false});
-  chassis.moveToPose(-47.5, 26, 180, 2000, {.forwards = false}, false);
+  chassis.moveToPoint(-48.5, -47.5, 800);
+  moveIntake(0);
+  chassis.turnToPoint(-48.5, 13, 800, {.forwards = false});
+  chassis.moveToPoint(-48.5, 13, 800, {.forwards = false, .minSpeed = 127},
+                      false);
+  chassis.moveToPoint(-48.5, 26, 800, {.forwards = false, .maxSpeed = 50},
+                      false);
   pros::delay(200);
   clamp();
   // Movement 11
@@ -424,47 +433,53 @@ void skills() {
 
   // Movement 12
   // Moves to the center
-  chassis.turnToPoint(0, 41, 600);
-  chassis.moveToPoint(0, 41, 800, {}, false);
-  // Wall stake up
-  ladyBrown(1);
+  chassis.turnToPoint(0, 59, 600);
+  chassis.moveToPoint(0, 59, 800, {}, false);
+  pros::delay(500);
   // Moves to second ring
-  chassis.turnToPoint(24, 48, 800);
-  chassis.moveToPoint(24, 48, 1000);
+  chassis.turnToPoint(24, 50, 800, {}, false);
+  // Wall stake up
+  //   ladyBrown(1);
+  chassis.moveToPoint(24, 50, 1000);
+  pros::delay(300);
+  ladyBrown(1);
 
   // Movement 13
   // Moves to middle
-  chassis.moveToPose(0, 44, 90, 2000, {.forwards = false}, false);
-  moveIntake(0);
+  chassis.turnToPoint(6, 50, 500, {.forwards = false});
+  chassis.moveToPoint(6, 50, 800, {.forwards = false}, false);
   // Moves to third ring
-  chassis.turnToHeading(0, 1000);
-  ladyBrown(2);
+  chassis.turnToHeading(0, 800, {}, false);
+  chassis.moveToPoint(6, 65, 800, {}, false);
   pros::delay(500);
-  moveIntake(1);
-  chassis.moveToPoint(0, 61, 1200, {}, false);
+  moveIntake(0);
   ladyBrown(3);
   pros::delay(500);
+
+  // Reset position
+  //   chassis.setPose(0, 62, 0);
 
   // Movement 14
   // Moves to middle
   chassis.moveToPoint(0, 50, 1000, {.forwards = false}, false);
   ladyBrown(0);
   // Moves to fourth ring
-  chassis.turnToPoint(-23.5, 50, 800);
+  chassis.turnToPoint(-23.5, 50, 800, {}, false);
+  moveIntake(1);
   chassis.moveToPoint(-23.5, 50, 800, {}, false);
 
   // Movement 15 & 16
-  chassis.moveToPoint(-57, 47.5, 2000, {.maxSpeed = 30}, false);
+  chassis.moveToPoint(-59, 50, 2000, {.maxSpeed = 50}, false);
   pros::delay(500);
 
   // Movement 17
   chassis.turnToPoint(-47.5, 59, 800);
-  chassis.moveToPoint(-47.5, 59, 1200, {}, false);
+  chassis.moveToPoint(-47.5, 59, 1400, {}, false);
 
   // Movement 18
-  chassis.turnToPoint(-60, 60, 500, {.forwards = false});
-  chassis.moveToPoint(-60, 60, 800, {.forwards = false}, false);
-  moveIntake(0);
+  //   chassis.turnToPoint(-65, 65, 500, {.forwards = false});
+  chassis.moveToPoint(-60, 66, 800, {.forwards = false}, false);
+  pros::delay(200);
   clamp();
 
   /*
@@ -474,69 +489,73 @@ void skills() {
   // */
   // Moves forward a bit
   chassis.moveToPoint(-54, 54, 500);
+  //   chassis.turnToPoint(-54, 54, 1200);
+  //   chassis.moveToPoint(-54, 54, 1500);
+  moveIntake(0);
 
   // Movement 19
   // chassis.turnToPoint(23.5, 23.5, 800);
   // chassis.moveToPoint(23.5, 23.5, 1500);
   chassis.turnToPoint(-12, 51, 600);
-  chassis.follow(thirdStake_txt, 14, 1500);
-  pros::delay(1200);
+  chassis.follow(thirdStake_txt, 14, 2000);
+  pros::delay(1700);
   moveIntake(1);
-  pros::delay(500);
+  pros::delay(800);
   moveIntake(0);
 
   // Movement 20
   chassis.turnToPoint(52, -3, 800, {.forwards = false});
-  chassis.moveToPoint(52, -3, 800, {.forwards = false}, false);
+  chassis.moveToPoint(52, -3, 1500, {.forwards = false, .maxSpeed = 60}, false);
   pros::delay(200);
   clamp();
   pros::delay(300);
   moveIntake(1);
 
   // Movement 21
-  chassis.turnToPoint(23.5, -23.5, 800);
-  chassis.moveToPoint(23.5, -23.5, 1200, {}, false);
+  chassis.turnToPoint(24, -24, 800);
+  chassis.moveToPoint(24, -24, 1000, {}, false);
   pros::delay(500);
   moveIntake(0);
 
   // Movement 22
-  chassis.turnToPoint(0, 0, 800);
-  chassis.moveToPoint(0, 0, 1200, {});
-  pros::delay(1200);
+  chassis.turnToPoint(2.5, 2.5, 800);
+  chassis.moveToPoint(2.5, 2.5, 1200, {});
+  pros::delay(500);
   moveIntake(1);
-  pros::delay(1000);
+  pros::delay(600);
+  moveIntake(0);
 
   // Movement 23
   chassis.turnToPoint(41.5, 41.5, 800, {}, false);
-  moveIntake(0);
   chassis.moveToPoint(41.5, 41.5, 1500);
-  pros::delay(1000);
+  pros::delay(600);
   moveIntake(1);
 
   // Movement 24
-  chassis.turnToPoint(39, 39, 800, {.forwards = false});
-  chassis.moveToPoint(39, 39, 800, {.forwards = false});
+  //   chassis.turnToPoint(39, 39, 800, {.forwards = false});
+  chassis.moveToPoint(39, 39, 600, {.forwards = false});
 
   chassis.turnToPoint(59, 47.5, 600);
-  chassis.moveToPoint(59, 47.5, 800, {}, false);
+  chassis.moveToPoint(59, 47.5, 1000, {}, false);
 
   // Movement 25
-  chassis.turnToPoint(39, 39, 600, {.forwards = false});
-  chassis.moveToPoint(39, 39, 800, {.forwards = false});
+  //   chassis.turnToPoint(39, 39, 600, {.forwards = false});
+  chassis.moveToPoint(39, 39, 600, {.forwards = false});
 
   chassis.turnToPoint(47.5, 59, 600);
-  chassis.moveToPoint(47.5, 59, 800);
+  chassis.moveToPoint(47.5, 59, 1000);
 
   // Movement 26
   moveIntake(0);
-  chassis.turnToPoint(61, 65, 800);
+  chassis.turnToPoint(63, 59, 600);
   doinkerP = !doinkerP;
-  chassis.moveToPose(61, 68, 90, 1000);
+  chassis.moveToPoint(63, 59, 800, {.minSpeed = 127});
   pros::delay(500);
-  chassis.turnToHeading(-135, 1000,
-                        {.direction = AngularDirection::CW_CLOCKWISE});
+  chassis.turnToHeading(
+      -135, 800,
+      {.direction = AngularDirection::CW_CLOCKWISE, .minSpeed = 127});
   // pros::delay(1000);
-  chassis.moveToPoint(60, 60, 500, {.forwards = false}, false);
+  chassis.moveToPoint(63, 63, 500, {.forwards = false, .minSpeed = 127}, false);
   clamp();
   pros::delay(50);
   doinkerP = !doinkerP;
@@ -546,16 +565,18 @@ void skills() {
   */
 
   // Movement 27
-  chassis.moveToPoint(54, 54, 500);
-  chassis.turnToPoint(27.5, 20, 1000, {.forwards = false});
-  chassis.follow(fourthStake_txt, 14, 2000, false, false);
+  chassis.moveToPoint(34, 34, 600, {.minSpeed = 127});
+  chassis.moveToPoint(59, -23.5, 1000, {.forwards = false, .minSpeed = 127});
+  //   chassis.follow(fourthStake_txt, 14, 2000, false, false);
 
   // Movement 28
   // chassis.turnToPoint(59, -23.5, 600, {.forwards = false});
   // chassis.moveToPoint(59, -23.5, 1000, {.forwards = false}, false);
 
-  // Movement 29
-  chassis.moveToPoint(62.5, -62.5, 1500, {.forwards = false}, false);
+  // Movement 28
+  chassis.moveToPoint(62.5, -62.5, 1500, {.forwards = false, .minSpeed = 127},
+                      false);
+  chassis.moveToPoint(47.5, -47.5, 500, {.minSpeed = 127});
 }
 
 void blueSolo() {
@@ -651,22 +672,144 @@ void blueSixRing() {
 
 void blueGoalRush() {
   // Blue Positive Side Rush
-  chassis.setPose(49, -47.5, 270);
+  chassis.setPose(60, -47.5, 270);
   // Rush to the stake
   chassis.moveToPoint(10, -43, 1000, {});
   moveIntake(1);
-  pros::delay(500);
-  moveIntake(0);
+  pros::delay(800);
   doinkerP = !doinkerP;
-  chassis.moveToPoint(45, -47.5, 1000, {.forwards = false}, false);
+  pros::delay(200);
+  moveIntake(0);
+  chassis.moveToPoint(59, -34, 1000, {.forwards = false}, false);
   doinkerP = !doinkerP;
   chassis.turnToPoint(23.5, -23.5, 800, {.forwards = false});
-  chassis.moveToPose(23.5, -23.5, -10, 2000, {.forwards = false}, false);
+  chassis.moveToPoint(23.5, -23.5, 2000, {.forwards = false, .maxSpeed = 50},
+                      false);
   pros::delay(500);
   clamp();
   moveIntake(1);
   chassis.turnToPoint(55, -55, 1000);
-  chassis.moveToPoint(55, -55, 1200);
+  chassis.moveToPoint(55, -55, 2000);
+
+  chassis.moveToPoint(63.5, -63.5, 1000);
+  chassis.moveToPoint(55, -55, 1200, {.forwards = false}, false);
+  doinkerP = !doinkerP;
+  chassis.turnToHeading(-135, 1500,
+                        {.direction = AngularDirection::CW_CLOCKWISE}, false);
+  doinkerP = !doinkerP;
+  chassis.moveToPoint(24, 0, 3000, {.maxSpeed = 30}, false);
+}
+
+void redSolo() {
+  // Red Side Negative Corner Autonomous
+  chassis.setPose(-50, 23.5, 270);
+  // Move to the stake
+  chassis.moveToPoint(-23.5, 23.5, 800, {.forwards = false}, false);
+  pros::delay(200);
+  clamp();
+  moveIntake(1);
+  // Ring 1 Left
+  chassis.turnToPoint(-10, 41.5, 1000);
+  chassis.moveToPoint(-10, 41.5, 1000);
+  // Ring 2 Right
+  chassis.moveToPoint(-8, 52, 800);
+  // Back up
+  chassis.turnToPoint(-15, 38, 800, {.forwards = false});
+  chassis.moveToPoint(-15, 38, 800, {.forwards = false});
+  // Ring 3 Middle
+  chassis.turnToPoint(-24, 47, 800);
+  chassis.moveToPoint(-24, 47, 800);
+  pros::delay(200);
+
+  // Ring 4 Middle
+  chassis.turnToPoint(-47.5, 12, 800, {}, false);
+  moveIntake(0);
+  chassis.moveToPoint(-47.5, 12, 800);
+
+  chassis.turnToPoint(-47.5, -11, 600, {}, false);
+  clamp();
+  moveIntake(1);
+  chassis.moveToPoint(-47.5, -11, 2000, {.maxSpeed = 30}, false);
+  moveIntake(0);
+
+  // Stake 2
+  chassis.turnToPoint(-23.5, -23.5, 600, {.forwards = false});
+  chassis.moveToPoint(-23.5, -23.5, 800, {.forwards = false});
+  pros::delay(200);
+  clamp();
+  moveIntake(1);
+
+  // Ring 5 Middle
+  chassis.turnToPoint(-23.5, -47.5, 800);
+  chassis.moveToPoint(-23.5, -47.5, 800);
+  pros::delay(200);
+
+  // Touch ladder
+  chassis.moveToPoint(-23.5, -23.5, 800, {.forwards = false});
+  chassis.turnToPoint(-9, -23.5, 800, {}, false);
+  moveIntake(0);
+  chassis.moveToPoint(-9, -23.5, 800);
+}
+
+void redSixRing() {
+  chassis.setPose(-50, 23.5, 270);
+  // Move to the stake
+  // chassis.turnToPoint(43.5, 30, 500, {.forwards = false});
+  // chassis.follow(blueNegative1_txt, 14, 1500, false, false);
+  chassis.moveToPoint(-24, 23.5, 800, {.forwards = false}, false);
+  pros::delay(200);
+  clamp();
+  moveIntake(1);
+  // Ring 1 Left
+  chassis.turnToPoint(-10, 41.5, 1000);
+  chassis.moveToPoint(-10, 41.5, 1000);
+  // Ring 2 Right
+  chassis.moveToPoint(-8, 52, 800);
+  // Back up
+  chassis.turnToPoint(-15, 38, 800, {.forwards = false});
+  chassis.moveToPoint(-15, 38, 800, {.forwards = false});
+  // Ring 3 Middle
+  chassis.turnToPoint(-24, 47, 800);
+  chassis.moveToPoint(-24, 47, 800);
+  pros::delay(200);
+  // Ring 4 Corner
+  chassis.turnToPoint(-59, 59, 800);
+  chassis.moveToPoint(-59, 59, 1200);
+  // Ring 5 Corner
+  chassis.moveToPoint(-52.5, 52.5, 800, {.forwards = false}, false);
+  intakeP = !intakeP;
+  chassis.moveToPoint(-59, 59, 1000, {}, false);
+  pros::delay(200);
+  intakeP = !intakeP;
+  // Back up
+  chassis.moveToPoint(-52.5, 52.5, 800, {.forwards = false});
+  // Ring 6 Middle
+  chassis.turnToPoint(-47.5, 10, 800, {}, false);
+  intakeP = !intakeP;
+  chassis.moveToPoint(-47.5, 10, 1200, {}, false);
+  intakeP = !intakeP;
+  pros::delay(500);
+}
+
+void redGoalRush() {
+  // Red Positive Side Rush
+  chassis.setPose(-60, -47.5, 90);
+  // Rush to the stake
+  chassis.moveToPoint(-10, -53, 1500, {});
+  moveIntake(1);
+  pros::delay(1100);
+  moveIntake(0);
+  doinkerP = !doinkerP;
+  chassis.moveToPoint(-59, -34, 1000, {.forwards = false}, false);
+  doinkerP = !doinkerP;
+  chassis.turnToPoint(-23.5, -23.5, 800, {.forwards = false});
+  chassis.moveToPoint(-23.5, -23.5, 2500, {.forwards = false, .maxSpeed = 30},
+                      false);
+  pros::delay(500);
+  clamp();
+  moveIntake(1);
+  chassis.turnToPoint(-55, -55, 1000);
+  chassis.moveToPoint(-55, -55, 1200);
 }
 
 /**
@@ -695,10 +838,10 @@ void initialize() {
       ladyBrownMotor.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
 
       // Set brake modes
-      leftMotors.set_brake_mode(driveHold ? pros::E_MOTOR_BRAKE_HOLD
-                                          : pros::E_MOTOR_BRAKE_COAST);
-      rightMotors.set_brake_mode(driveHold ? pros::E_MOTOR_BRAKE_HOLD
-                                           : pros::E_MOTOR_BRAKE_COAST);
+      //   leftMotors.set_brake_mode(driveHold ? pros::E_MOTOR_BRAKE_HOLD
+      //                                       : pros::E_MOTOR_BRAKE_COAST);
+      //   rightMotors.set_brake_mode(driveHold ? pros::E_MOTOR_BRAKE_HOLD
+      //                                        : pros::E_MOTOR_BRAKE_COAST);
 
       // Print robot pose to LCD
       pros::lcd::print(0, "X: %.1f", chassis.getPose().x);
@@ -709,18 +852,83 @@ void initialize() {
       pros::delay(50);
     }
   });
-  // pros::Task liftControlTask([] {
-  //   while (true) {
-  //     liftControl();
-  //     pros::delay(10);
-  //   }
-  // });
+  pros::Task unstuck([&]() {
+    int stallCount = 0;
+    while (true) {
+      // If a reversal is active, skip unstuck checking.
+      if (unstuckOverride) {
+        pros::delay(20);
+        continue;
+      }
+      // Debug: Print actual velocity
+      double currentVelocity = intakeMotor.get_actual_velocity();
+      pros::lcd::print(4, "Intake Vel: %.1f", currentVelocity);
+
+      // Only count consecutive low velocity readings
+      if (intakeActive && currentVelocity < 10) {
+        stallCount++;
+      } else {
+        stallCount = 0;
+      }
+
+      // If low velocity persists for a few cycles (~60ms), trigger reversal
+      if (stallCount > 3) {
+        unstuckOverride = true; // Prevent further checks during reversal
+        moveIntake(0);          // Reverse intake
+        pros::delay(100);
+        moveIntake(1);  // Resume intake motion
+        stallCount = 0; // Reset counter after reversal
+        pros::delay(
+            600); // Additional delay before allowing unstuck to run again
+        unstuckOverride = false;
+      }
+      pros::delay(20);
+    }
+  });
+  //   pros::Task colorSort([&]() {
+  //     while (true) {
+  //       // Read the hue and the distance from the color sensor.
+  //       double hue = IntakeColor.get_hue();         // Hue in degrees (0-360)
+  //       int distance = IntakeColor.get_proximity(); // Distance in mm
+
+  //       // Only consider the object if it is within ~4 inches (100 mm);
+  //       adjust
+  //       // threshold as required.
+  //       if (distance <= 100 && intakeActive) {
+  //         if (redAlliance) {
+  //           // For red alliance, if a blue ring is detected (hue typically
+  //           between
+  //           // 200-260°).
+  //           if (hue > 200 && hue < 250) {
+  //             intakeOverride = true;
+  //             // pros::delay(165);  // Allow any ongoing motion to settle.
+  //             moveIntake(0);    // Stop the intake to eject the blue ring.
+  //             pros::delay(600); // Hold the intake off for 1 second.
+  //             intakeOverride = false;
+  // 			moveIntake(1); // Resume intake motion.
+  //           }
+  //         } else {
+  //           // For blue alliance, if a red ring is detected.
+  //           // Red can be at the lower or higher end of the hue scale.
+  //           if ((hue >= 1 && hue < 12) || (hue > 340)) {
+  //             intakeOverride = true;
+  //             // pros::delay(165);
+  //             moveIntake(0);
+  //             pros::delay(600);
+  //             intakeOverride = false;
+  // 			moveIntake(1); // Resume intake motion.
+  //           }
+  //         }
+  //       }
+  //       pros::delay(50); // Check about 20 times per second.
+  //     }
+  //   });
 }
 
 /**
  * Runs while the robot is disabled
  */
-void disabled() {}
+void disabled() { chassis.setBrakeMode(pros::E_MOTOR_BRAKE_HOLD); }
 
 /**
  * runs after initialize if the robot is connected to field control
@@ -743,6 +951,7 @@ void autonomous() {
   Case 6: Blue Solo AWP
   Case 7: Red Solo AWP
   */
+  //   driveHold = true;
   leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
   rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
 
@@ -751,23 +960,47 @@ void autonomous() {
 
   switch (autonSelected) {
   case 1:
+    // Blue Six Ring Negative Corner Autonomous
+    redAlliance = false;
     blueSixRing();
     break;
   case 2:
+    // Blue Side Positive Corner Autonomous
+    redAlliance = false;
     blueGoalRush();
     break;
   case 3:
-    // Red Side Negative Corner Autonomous
+    // Red Six Ring Negative Corner Autonomous
+    redAlliance = true;
+    redSixRing();
     break;
   case 4:
     // Red Side Positive Corner Autonomous
+    redAlliance = true;
+    redGoalRush();
     break;
   case 5:
+    redAlliance = true;
     skills();
+    // moveIntake(1);
     break;
   case 6:
     // Blue Solo AWP
+    redAlliance = false;
     blueSolo();
+    break;
+  case 7:
+    // Red Solo AWP
+    redAlliance = true;
+    redSolo();
+    break;
+
+  case 8:
+    redAlliance = true;
+    clamp();
+    moveIntake(1);
+    pros::delay(2000);
+    ladyBrown(1);
     break;
   }
 }
@@ -787,12 +1020,15 @@ void opcontrol() {
     chassis.arcade(leftY, rightX);
     // delay to save resources
     pros::delay(10);
-    if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_R1)) {
-      moveIntakeOP(1);
-    } else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_R2)) {
-      moveIntakeOP(2);
-    } else {
-      moveIntakeOP(0);
+    // Within opcontrol() loop:
+    if (!intakeOverride) {
+      if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_R1)) {
+        moveIntake(1);
+      } else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_R2)) {
+        moveIntake(2);
+      } else {
+        moveIntake(0);
+      }
     }
     if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_L1)) {
       clamp();
