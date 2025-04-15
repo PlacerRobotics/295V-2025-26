@@ -10,6 +10,7 @@
 extern pros::adi::DigitalOut clampPistonL;
 extern pros::adi::DigitalOut clampPistonR;
 extern pros::adi::DigitalOut doinkerPiston;
+extern pros::adi::DigitalOut doinkerPiston2;
 extern pros::adi::DigitalOut intakePiston;
 
 // Intake Motor
@@ -31,6 +32,7 @@ extern int ladybrown_counter;
 extern bool clampP1, clampP2;
 extern bool intakeP;
 extern bool doinkerP;
+extern bool doinkerP2;
 extern int autonSelected;
 
 extern int intake_motor_p;
@@ -44,7 +46,7 @@ extern bool intakeActive;
 // encountered
 extern bool intakeOverride;
 // Global alliance selection variable; set true for red, false for blue.
-extern bool redAlliance;
+extern bool isRedAlliance;
 
 // Global flag to inhibit unstuck commands while a reversal is in progress.
 extern bool unstuckOverride;
@@ -57,7 +59,10 @@ extern void ladyBrown(int state);
 void blueSolo();
 void blueSixRing();
 void blueGoalRush();
+void blueAlliance();
 void redSolo();
 void redSixRing();
 void redGoalRush();
+void redAlliance();
 void skills();
+void skills2();
